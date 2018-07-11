@@ -7,7 +7,7 @@
 		exports["Hls"] = factory();
 	else
 		root["Hls"] = factory();
-})(this, function() {
+})(typeof self !== 'undefined' ? self : this, function() {
 return /******/ (function(modules) { // webpackBootstrap
 /******/ 	// The module cache
 /******/ 	var installedModules = {};
@@ -408,14 +408,14 @@ function getSelfScope() {
         if (!opts.alwaysNormalize) {
           return baseURL;
         }
-        var basePartsForNormalise = this.parseURL(baseURL);
-        if (!baseParts) {
+        var basePartsForNormalise = URLToolkit.parseURL(baseURL);
+        if (!basePartsForNormalise) {
           throw new Error('Error trying to parse base URL.');
         }
         basePartsForNormalise.path = URLToolkit.normalizePath(basePartsForNormalise.path);
         return URLToolkit.buildURLFromParts(basePartsForNormalise);
       }
-      var relativeParts = this.parseURL(relativeURL);
+      var relativeParts = URLToolkit.parseURL(relativeURL);
       if (!relativeParts) {
         throw new Error('Error trying to parse relative URL.');
       }
@@ -428,7 +428,7 @@ function getSelfScope() {
         relativeParts.path = URLToolkit.normalizePath(relativeParts.path);
         return URLToolkit.buildURLFromParts(relativeParts);
       }
-      var baseParts = this.parseURL(baseURL);
+      var baseParts = URLToolkit.parseURL(baseURL);
       if (!baseParts) {
         throw new Error('Error trying to parse base URL.');
       }
@@ -6362,6 +6362,7 @@ function m3u8_parser__classCallCheck(instance, Constructor) { if (!(instance ins
 // https://regex101.com is your friend
 var MASTER_PLAYLIST_REGEX = /#EXT-X-STREAM-INF:([^\n\r]*)[\r\n]+([^\r\n]+)/g;
 var MASTER_PLAYLIST_MEDIA_REGEX = /#EXT-X-MEDIA:(.*)/g;
+var MASTER_PLAYLIST_SESSION_DATA_REGEX = /#EXT-X-SESSION-DATA:(.*)/g;
 
 var LEVEL_PLAYLIST_REGEX_FAST = new RegExp([/#EXTINF:\s*(\d*(?:\.\d+)?)(?:,(.*)\s+)?/.source, // duration (#EXTINF:<duration>,<title>), group 1 => duration, group 2 => title
 /|(?!#)(\S+)/.source, // segment URI, group 3 => the URI (note newline is not eaten)
@@ -6417,6 +6418,7 @@ var m3u8_parser_M3U8Parser = function () {
     var levels = [],
         result = void 0;
     MASTER_PLAYLIST_REGEX.lastIndex = 0;
+    MASTER_PLAYLIST_SESSION_DATA_REGEX.lastIndex = 0;
 
     function setCodecs(codecs, level) {
       ['video', 'audio'].forEach(function (type) {
@@ -6439,6 +6441,19 @@ var m3u8_parser_M3U8Parser = function () {
       level.unknownCodecs = codecs;
     }
 
+    var sessionData = {};
+
+    while ((result = MASTER_PLAYLIST_SESSION_DATA_REGEX.exec(string)) != null) {
+      var sessionAttrs = new attr_list(result[1]);
+      if (sessionAttrs['DATA-ID']) {
+        if (!sessionData[sessionAttrs['DATA-ID']]) {
+          sessionData[sessionAttrs['DATA-ID']] = [sessionAttrs];
+        } else {
+          sessionData[sessionAttrs['DATA-ID']].push(sessionAttrs);
+        }
+      }
+    }
+
     while ((result = MASTER_PLAYLIST_REGEX.exec(string)) != null) {
       var level = {};
 
@@ -6458,6 +6473,8 @@ var m3u8_parser_M3U8Parser = function () {
       if (level.videoCodec && level.videoCodec.indexOf('avc1') !== -1) {
         level.videoCodec = M3U8Parser.convertAVC1ToAVCOTI(level.videoCodec);
       }
+
+      level.sessionData = sessionData;
 
       levels.push(level);
     }
@@ -10330,12 +10347,12 @@ var stream_controller_StreamController = function (_TaskLoop) {
       var targetTime = currentTime + nudgeRetry * config.nudgeOffset;
       logger["b" /* logger */].log('adjust currentTime from ' + currentTime + ' to ' + targetTime);
       // playback stalled in buffered area ... let's nudge currentTime to try to overcome this
-      media.currentTime = targetTime;
       hls.trigger(events["a" /* default */].ERROR, {
         type: errors["b" /* ErrorTypes */].MEDIA_ERROR,
         details: errors["a" /* ErrorDetails */].BUFFER_NUDGE_ON_STALL,
         fatal: false
       });
+      media.currentTime = targetTime;
     } else {
       logger["b" /* logger */].error('still stuck in high buffer @' + currentTime + ' after ' + config.nudgeMaxRetry + ', raise fatal error');
       hls.trigger(events["a" /* default */].ERROR, {
@@ -11413,8 +11430,13 @@ var abr_controller_AbrController = function (_EventHandler) {
 
   AbrController.prototype._findBestLevel = function _findBestLevel(currentLevel, currentFragDuration, currentBw, minAutoLevel, maxAutoLevel, maxFetchDuration, bwFactor, bwUpFactor, levels) {
     for (var i = maxAutoLevel; i >= minAutoLevel; i--) {
-      var levelInfo = levels[i],
-          levelDetails = levelInfo.details,
+      var levelInfo = levels[i];
+
+      if (!levelInfo) {
+        continue;
+      }
+
+      var levelDetails = levelInfo.details,
           avgDuration = levelDetails ? levelDetails.totalduration / levelDetails.fragments.length : currentFragDuration,
           live = levelDetails ? levelDetails.live : false,
           adjustedbw = void 0;
@@ -18617,6 +18639,11 @@ function webpackBootstrapFunc (modules) {
 /******/    }
 /******/  };
 
+/******/  // define __esModule on exports
+/******/  __webpack_require__.r = function(exports) {
+/******/    Object.defineProperty(exports, '__esModule', { value: true });
+/******/  };
+
 /******/  // getDefaultExport function for compatibility with non-harmony modules
 /******/  __webpack_require__.n = function(module) {
 /******/    var getter = module && module.__esModule ?
@@ -18647,6 +18674,10 @@ function quoteRegExp (str) {
   return (str + '').replace(/[.?*+^$[\]\\(){}|-]/g, '\\$&')
 }
 
+function isNumeric(n) {
+  return !isNaN(1 * n); // 1 * n converts integers, integers as string ("123"), 1e3 and "1e3" to integers and strings to NaN
+}
+
 function getModuleDependencies (sources, module, queueName) {
   var retval = {}
   retval[queueName] = []
@@ -18673,6 +18704,16 @@ function getModuleDependencies (sources, module, queueName) {
     }
     retval[match[2]] = retval[match[2]] || []
     retval[match[2]].push(match[4])
+  }
+
+  // convert 1e3 back to 1000 - this can be important after uglify-js converted 1000 to 1e3
+  var keys = Object.keys(retval);
+  for (var i = 0; i < keys.length; i++) {
+    for (var j = 0; j < retval[keys[i]].length; j++) {
+      if (isNumeric(retval[keys[i]][j])) {
+        retval[keys[i]][j] = 1 * retval[keys[i]][j];
+      }
+    }
   }
 
   return retval
@@ -18725,7 +18766,7 @@ module.exports = function (moduleId, options) {
     main: __webpack_require__.m
   }
 
-  var requiredModules = options.all ? { main: Object.keys(sources) } : getRequiredModules(sources, moduleId)
+  var requiredModules = options.all ? { main: Object.keys(sources.main) } : getRequiredModules(sources, moduleId)
 
   var src = ''
 
@@ -18739,7 +18780,7 @@ module.exports = function (moduleId, options) {
     src = src + 'var ' + module + ' = (' + webpackBootstrapFunc.toString().replace('ENTRY_MODULE', JSON.stringify(entryModule)) + ')({' + requiredModules[module].map(function (id) { return '' + JSON.stringify(id) + ': ' + sources[module][id].toString() }).join(',') + '});\n'
   })
 
-  src = src + '(' + webpackBootstrapFunc.toString().replace('ENTRY_MODULE', JSON.stringify(moduleId)) + ')({' + requiredModules.main.map(function (id) { return '' + JSON.stringify(id) + ': ' + sources.main[id].toString() }).join(',') + '})(self);'
+  src = src + 'new ((' + webpackBootstrapFunc.toString().replace('ENTRY_MODULE', JSON.stringify(moduleId)) + ')({' + requiredModules.main.map(function (id) { return '' + JSON.stringify(id) + ': ' + sources.main[id].toString() }).join(',') + '}))(self);'
 
   var blob = new window.Blob([src], { type: 'text/javascript' })
   if (options.bare) { return blob }
